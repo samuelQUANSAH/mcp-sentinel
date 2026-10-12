@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python Version](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-brightgreen.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/Tests-24%2F24%20Passing-success.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-36%2F36%20Passing-success.svg)]()
 [![Architecture](https://img.shields.io/badge/Architecture-Clean%20Architecture%20%2F%20Zero--Trust-orange.svg)]()
 
 ---
@@ -19,7 +19,7 @@ However, **native MCP has zero security guardrails**:
 - Rogue loops or runaway agent reasoning can spam upstream APIs without velocity or cost limits.
 - Regulated enterprises (HIPAA, SOC 2, FedRAMP, PCI-DSS) cannot audit tool invocations with forensic integrity.
 
-**MCP Sentinel** is an ultra-low-latency, asynchronous security reverse-proxy and governance gateway that transparently wraps any MCP server. It intercepts JSON-RPC 2.0 wire frames to enforce zero-trust policies, scrub sensitive data in real time, apply rate limits, and record cryptographic audit trails.
+**MCP Sentinel** is an ultra-low-latency, asynchronous security reverse-proxy and governance gateway that transparently wraps any MCP server across both **`stdio`** and **`SSE` (Server-Sent Events)** transports. It intercepts JSON-RPC 2.0 wire frames to enforce zero-trust policies, scrub sensitive data in real time, block adversarial prompt injection attacks, apply rate limits, and record cryptographic audit trails.
 
 ---
 
@@ -110,14 +110,30 @@ mcp-sentinel validate-policy --policy config/sentinel_policy.yaml
 Wrap any existing MCP server command with `mcp-sentinel proxy`:
 
 ```bash
-# Example: Secure an SQLite MCP Server
+# Example: Secure a local stdio MCP Server
 mcp-sentinel proxy \
   --policy config/sentinel_policy.yaml \
   --client-id agent-session-42 \
   -- python -m mcp_server_sqlite --db-path ./data/app.db
 ```
 
-### 4. Inspect Forensic Audit Logs
+### 4. Run the Remote SSE Gateway (HTTP / SSE Transport)
+
+Protect remote or cloud-hosted MCP servers with `mcp-sentinel sse-proxy`:
+
+```bash
+# Example: Run reverse proxy in front of remote MCP server on port 8000
+mcp-sentinel sse-proxy \
+  --upstream http://localhost:8000 \
+  --host 127.0.0.1 \
+  --port 8080 \
+  --policy config/sentinel_policy.yaml \
+  --client-id web-agent-client
+```
+
+Clients (Cursor, Claude Desktop, or web apps) connect to `http://127.0.0.1:8080/sse`. Sentinel dynamically intercepts the SSE stream, rewrites the message endpoint to route through Sentinel, redacts downstream PII/secrets, blocks prompt injections, and logs audit events.
+
+### 5. Inspect Forensic Audit Logs
 
 ```bash
 mcp-sentinel audit --limit 10
@@ -211,14 +227,16 @@ pytest -v
 ```
 
 ```text
-tests/test_auditor.py .                                                  [  4%]
-tests/test_models.py .....                                               [ 25%]
-tests/test_pii_redactor.py .....                                         [ 45%]
-tests/test_policy_engine.py ......                                       [ 70%]
+tests/test_auditor.py .                                                  [  2%]
+tests/test_injection_guard.py ..........                                 [ 30%]
+tests/test_models.py .....                                               [ 44%]
+tests/test_pii_redactor.py .....                                         [ 58%]
+tests/test_policy_engine.py ......                                       [ 75%]
 tests/test_rate_limiter.py ...                                           [ 83%]
+tests/test_sse_proxy.py ..                                               [ 88%]
 tests/test_stdio_proxy.py ....                                           [100%]
 
-============================== 24 passed in 0.77s ==============================
+============================== 36 passed in 2.25s ==============================
 ```
 
 ---
