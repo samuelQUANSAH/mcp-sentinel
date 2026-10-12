@@ -68,6 +68,7 @@ class ToolRule(BaseModel):
     argument_rules: List[ArgumentRule] = Field(default_factory=list, description="Rules applied to tool parameters")
     allowed_roles: Optional[List[str]] = Field(default=None, description="Required roles to execute this tool")
     rate_limit_per_minute: Optional[int] = Field(default=None, description="Specific velocity limit for this tool")
+    check_injection: Optional[bool] = Field(default=None, description="Per-tool override for prompt injection scanning")
     description: Optional[str] = Field(default=None, description="Human readable rule explanation")
 
 
@@ -79,6 +80,8 @@ class GlobalPolicy(BaseModel):
     default_action: PolicyAction = Field(default=PolicyAction.ALLOW, description="Fallback action for unmatched tools")
     enable_pii_redaction: bool = Field(default=True, description="Enable automatic scrubbing of PII in arguments & results")
     enable_secret_redaction: bool = Field(default=True, description="Enable automatic scrubbing of API keys/tokens")
+    enable_injection_guard: bool = Field(default=True, description="Enable automated detection of prompt injection and jailbreak attacks")
+    injection_risk_threshold: float = Field(default=0.60, description="Risk threshold (0.0 - 1.0) above which requests are blocked")
     rate_limit_per_minute: int = Field(default=120, description="Global velocity cap per client across all tools")
     rules: List[ToolRule] = Field(default_factory=list, description="Ordered tool rules evaluated first-to-last")
 
@@ -92,8 +95,10 @@ class AuditEventType(str, Enum):
 
     TOOL_CALL = "tool_call"
     POLICY_BLOCK = "policy_block"
+    INJECTION_BLOCK = "injection_block"
     PII_REDACTION = "pii_redaction"
     RATE_LIMIT_BLOCK = "rate_limit_block"
+    SSE_STREAM = "sse_stream"
     SYSTEM = "system"
 
 
