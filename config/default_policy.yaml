@@ -1,0 +1,57 @@
+version: "1.0"
+policy_name: enterprise-sentinel-guardrails
+default_action: allow
+enable_pii_redaction: true
+enable_secret_redaction: true
+rate_limit_per_minute: 60
+
+rules:
+  # --------------------------------------------------------------------------
+  # 1. Shell & Terminal Execution Guardrails
+  # --------------------------------------------------------------------------
+  - tool_pattern: "bash*"
+    action: allow
+    description: "Guardrails on bash/terminal execution commands"
+    argument_rules:
+      - param_name: command
+        forbidden_regex: "(rm\\s+-rf\\s+[/~]|mkfs|dd\\s+if=|:(){:|chmod\\s+-R\\s+777\\s+/)"
+        action: deny
+        message: "Destructive filesystem deletion commands are prohibited by security policy"
+      - param_name: command
+        forbidden_regex: "(curl|wget)\\s+.*\\|\\s*(bash|sh|zsh)"
+        action: deny
+        message: "Remote pipe-to-shell execution is strictly prohibited"
+
+  # --------------------------------------------------------------------------
+  # 2. SQL Database Protection Rules
+  # --------------------------------------------------------------------------
+  - tool_pattern: "sql*"
+    action: allow
+    description: "SQL database query guardrails"
+    argument_rules:
+      - param_name: query
+        forbidden_regex: "\\b(DROP\\s+TABLE|DROP\\s+DATABASE|TRUNCATE\\s+TABLE|ALTER\\s+TABLE)\\b"
+        action: deny
+        message: "DDL drop and truncate schema mutations are blocked in production"
+
+  # --------------------------------------------------------------------------
+  # 3. Sensitive Filesystem Traversal Guardrails
+  # --------------------------------------------------------------------------
+  - tool_pattern: "*file*"
+    action: allow
+    description: "Filesystem access restrictions to prevent confidential path traversal"
+    argument_rules:
+      - param_name: path
+        forbidden_regex: "(/etc/shadow|/etc/passwd|~?\\.ssh/|\\.env$|id_rsa)"
+        action: deny
+        message: "Access to confidential system credentials or environment files is blocked"
+
+  # --------------------------------------------------------------------------
+  # 4. Privileged Admin Operations (HITL & RBAC)
+  # --------------------------------------------------------------------------
+  - tool_pattern: "admin_*"
+    action: require_approval
+    allowed_roles:
+      - admin
+      - secops
+    description: "Administrative tools require human-in-the-loop approval and secops role"
