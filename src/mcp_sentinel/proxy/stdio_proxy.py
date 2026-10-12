@@ -87,8 +87,10 @@ class StdioSentinelProxy:
         )
 
         if not eval_result.allowed:
+            is_injection = bool(eval_result.matched_rule and eval_result.matched_rule.startswith("injection_guard:"))
+            event_type = AuditEventType.INJECTION_BLOCK if is_injection else AuditEventType.POLICY_BLOCK
             self.auditor.log_tool_decision(
-                event_type=AuditEventType.POLICY_BLOCK,
+                event_type=event_type,
                 tool_name=tool_name,
                 client_id=self.client_id,
                 status="BLOCKED",
@@ -97,6 +99,7 @@ class StdioSentinelProxy:
                 details={
                     "matched_rule": eval_result.matched_rule,
                     "action": eval_result.action.value,
+                    "injection_details": eval_result.injection_scan.model_dump() if eval_result.injection_scan else None,
                 },
             )
             return JsonRpcResponse(

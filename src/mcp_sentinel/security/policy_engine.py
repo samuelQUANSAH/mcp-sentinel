@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from mcp_sentinel.core.models import GlobalPolicy, PolicyAction, ToolRule
+from mcp_sentinel.security.injection_guard import InjectionScanResult, PromptInjectionGuard
 from mcp_sentinel.security.pii_redactor import PIIRedactor
 
 
@@ -19,6 +20,7 @@ class PolicyEvaluationResult(BaseModel):
     reason: Optional[str] = None
     redacted_arguments: Dict[str, Any] = Field(default_factory=dict)
     pii_entities_detected: List[str] = Field(default_factory=list)
+    injection_scan: Optional[InjectionScanResult] = None
     rate_limit_override: Optional[int] = None
 
 
@@ -30,6 +32,9 @@ class PolicyEngine:
         self.redactor = PIIRedactor(
             enable_pii=self.policy.enable_pii_redaction,
             enable_secrets=self.policy.enable_secret_redaction,
+        )
+        self.injection_guard = PromptInjectionGuard(
+            risk_threshold=self.policy.injection_risk_threshold
         )
         self._compiled_regex_cache: Dict[str, re.Pattern] = {}
 
@@ -70,6 +75,32 @@ class PolicyEngine:
         # 2. Check tool-level rule match
         matched_rule = self._match_tool_rule(tool_name)
 
+        # 3. Prompt injection & jailbreak scanning
+        should_scan_injection = (
+            matched_rule.check_injection
+            if (matched_rule and matched_rule.check_injection is not None)
+            else self.policy.enable_injection_guard
+        )
+        injection_scan: Optional[InjectionScanResult] = None
+        if should_scan_injection:
+            injection_scan = self.injection_guard.scan_value(arguments)
+            if injection_scan.is_flagged:
+                category_label = (
+                    injection_scan.matched_categories[0].value
+                    if injection_scan.matched_categories
+                    else "detected"
+                )
+                return PolicyEvaluationResult(
+                    allowed=False,
+                    action=PolicyAction.DENY,
+                    matched_rule=f"injection_guard:{category_label}",
+                    reason=f"Adversarial prompt injection violation: {injection_scan.explanation}",
+                    redacted_arguments=redacted_args,
+                    pii_entities_detected=detected_pii,
+                    injection_scan=injection_scan,
+                    rate_limit_override=matched_rule.rate_limit_per_minute if matched_rule else None,
+                )
+
         if not matched_rule:
             # Fallback to default policy action
             if self.policy.default_action == PolicyAction.DENY:
@@ -80,6 +111,7 @@ class PolicyEngine:
                     reason=f"Tool '{tool_name}' is blocked by default policy",
                     redacted_arguments=redacted_args,
                     pii_entities_detected=detected_pii,
+                    injection_scan=injection_scan,
                 )
             return PolicyEvaluationResult(
                 allowed=True,
@@ -87,6 +119,7 @@ class PolicyEngine:
                 matched_rule="default_action",
                 redacted_arguments=redacted_args,
                 pii_entities_detected=detected_pii,
+                injection_scan=injection_scan,
             )
 
         # 3. Check Role-Based Access Control (RBAC)
@@ -163,6 +196,7 @@ class PolicyEngine:
                 reason="Human-in-the-loop manual approval required before execution",
                 redacted_arguments=redacted_args,
                 pii_entities_detected=detected_pii,
+                injection_scan=injection_scan,
                 rate_limit_override=matched_rule.rate_limit_per_minute,
             )
 
@@ -172,5 +206,6 @@ class PolicyEngine:
             matched_rule=matched_rule.tool_pattern,
             redacted_arguments=redacted_args,
             pii_entities_detected=detected_pii,
+            injection_scan=injection_scan,
             rate_limit_override=matched_rule.rate_limit_per_minute,
         )
