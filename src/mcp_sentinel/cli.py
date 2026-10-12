@@ -15,6 +15,7 @@ from mcp_sentinel.core.models import (
     PolicyAction,
     ToolRule,
 )
+from mcp_sentinel.proxy.sse_proxy import SSESentinelProxy
 from mcp_sentinel.proxy.stdio_proxy import StdioSentinelProxy
 
 
@@ -103,6 +104,43 @@ def cmd_proxy(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_sse_proxy(args: argparse.Namespace) -> int:
+    """Execute SSE reverse proxy gateway in front of an upstream MCP SSE server."""
+    if not args.upstream:
+        print("Error: No upstream MCP server URL specified. Example: mcp-sentinel sse-proxy --upstream http://localhost:8000", file=sys.stderr)
+        return 1
+
+    try:
+        policy = load_policy(args.policy) if args.policy else generate_starter_policy()
+    except Exception as exc:
+        print(f"Error loading policy: {exc}", file=sys.stderr)
+        return 1
+
+    audit_logger = AuditLogger(db_path=args.audit_db)
+    roles = [r.strip() for r in args.roles.split(",")] if args.roles else ["default"]
+
+    proxy = SSESentinelProxy(
+        upstream_url=args.upstream,
+        host=args.host,
+        port=args.port,
+        policy=policy,
+        audit_logger=audit_logger,
+        client_id=args.client_id,
+        roles=roles,
+    )
+
+    print(f"Starting MCP Sentinel SSE Gateway on http://{args.host}:{args.port} -> Upstream: {args.upstream}")
+    try:
+        asyncio.run(proxy.start())
+        return 0
+    except KeyboardInterrupt:
+        print("\nShutdown signal received. Stopping SSE Gateway.")
+        return 0
+    except Exception as exc:
+        print(f"Fatal SSE proxy runtime error: {exc}", file=sys.stderr)
+        return 1
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     """Query and display audit events from the SQLite store."""
     logger = AuditLogger(db_path=args.audit_db)
@@ -166,6 +204,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     proxy_parser.add_argument("--roles", type=str, default="default", help="Comma-separated caller roles (e.g. user,developer)")
     proxy_parser.add_argument("cmd", nargs=argparse.REMAINDER, help="MCP server command to launch and proxy (e.g. -- python server.py)")
 
+    # SSE Proxy command
+    sse_parser = subparsers.add_parser("sse-proxy", help="Run the HTTP/SSE security gateway in front of a remote MCP server")
+    sse_parser.add_argument("--upstream", type=str, required=True, help="Upstream MCP SSE server base URL (e.g. http://localhost:8000)")
+    sse_parser.add_argument("--host", type=str, default="127.0.0.1", help="Host interface to bind the gateway on")
+    sse_parser.add_argument("--port", type=int, default=8080, help="Local HTTP port to listen on")
+    sse_parser.add_argument("--policy", type=str, default=None, help="Path to YAML/JSON policy definition")
+    sse_parser.add_argument("--audit-db", type=str, default="audit_logs/sentinel_audit.sqlite", help="SQLite audit store path")
+    sse_parser.add_argument("--client-id", type=str, default="client-sse", help="Client or session identifier")
+    sse_parser.add_argument("--roles", type=str, default="default", help="Comma-separated caller roles (e.g. user,developer)")
+
     # Audit command
     audit_parser = subparsers.add_parser("audit", help="Inspect security audit events from the SQLite audit database")
     audit_parser.add_argument("--audit-db", type=str, default="audit_logs/sentinel_audit.sqlite", help="SQLite audit store path")
@@ -192,6 +240,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     handlers = {
         "proxy": cmd_proxy,
+        "sse-proxy": cmd_sse_proxy,
         "audit": cmd_audit,
         "init-policy": cmd_init_policy,
         "validate-policy": cmd_validate_policy,
