@@ -26,7 +26,7 @@ class PIIRedactor:
     # High-precision regular expressions
     PATTERNS: Dict[str, Tuple[re.Pattern, str]] = {
         "SSN": (
-            re.compile(r"\b(?!000|666|9\d{2})\d{3}[- ]?(?!00)\d{2}[- ]?(?!0000)\d{4}\b"),
+            re.compile(r"\b(?!000|666)\d{3}[- ]?(?!00)\d{2}[- ]?(?!0000)\d{4}\b"),
             "[REDACTED_SSN]",
         ),
         "EMAIL": (

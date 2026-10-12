@@ -139,15 +139,13 @@ class StdioSentinelProxy:
                 clean_result, detected = self.result_redactor.redact_value(data["result"])
                 if detected:
                     data["result"] = clean_result
-                    self.auditor.record_event(
-                        self.auditor.log_tool_decision(
-                            event_type=AuditEventType.PII_REDACTION,
-                            tool_name="response_sanitizer",
-                            client_id=self.client_id,
-                            status="REDACTED",
-                            reason=f"Scrubbed sensitive entities: {detected}",
-                            details={"entities": detected},
-                        )
+                    self.auditor.log_tool_decision(
+                        event_type=AuditEventType.PII_REDACTION,
+                        tool_name="response_sanitizer",
+                        client_id=self.client_id,
+                        status="REDACTED",
+                        reason=f"Scrubbed sensitive entities: {detected}",
+                        details={"entities": detected},
                     )
                     return json.dumps(data)
         except Exception:
